@@ -39,7 +39,7 @@ Configurable via VS Code settings (`settings.json`):
 
 ## 5. Future Improvements [ ]
 
-- **Structured output:** Use `unittest2`'s JUnit XML output (`--xml:<file>`) instead of stdout parsing for more reliable result capture.
+- **Structured output:** [x] Use `unittest2`'s JUnit XML output (`--xml:<file>`) instead of stdout parsing for more reliable result capture.
 - **Nimble integration:** Support running `nimble test` instead of `nim c -r` directly, for projects with complex build setups.
 - **Granular test filtering:** Pass specific test names to the executable to avoid running unselected tests.
 - **Debug profile:** Add a `vscode.TestRunProfileKind.Debug` run profile.

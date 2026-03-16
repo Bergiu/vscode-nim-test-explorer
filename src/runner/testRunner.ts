@@ -3,6 +3,7 @@ import * as cp from 'child_process';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
+import { XMLParser } from 'fast-xml-parser';
 
 export async function runNimTests(
     itemToRun: vscode.TestItem,
@@ -44,6 +45,7 @@ export async function runNimTests(
     return new Promise((resolve) => {
         // Create a temporary directory for the test binary and nimcache
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nim-tests-'));
+        const xmlPath = path.join(tmpDir, 'results.xml');
         
         const args = [
             'c', 
@@ -53,15 +55,14 @@ export async function runNimTests(
             `--nimcache:${path.join(tmpDir, 'nimcache')}`,
             ...compilerArgs, 
             filePath, 
-            '--output-level=VERBOSE'
+            '--output-level=VERBOSE',
+            `--xml:${xmlPath}`
         ];
         if (filter) {
             args.push(filter);
         }
         const child = cp.spawn('nim', args, { cwd });
 
-        let currentSuiteName = '';
-        let outputBuffer = '';
         let hasSeenAnyResult = false;
 
         if (token.isCancellationRequested) {
@@ -72,22 +73,9 @@ export async function runNimTests(
         }
         token.onCancellationRequested(() => child.kill());
 
-        const ansiRegex = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
-
         child.stdout.on('data', (data: Buffer) => {
             const text = data.toString();
-            outputBuffer += text;
             run.appendOutput(text.replace(/\r?\n/g, '\r\n'));
-
-            const lines = outputBuffer.split('\n');
-            outputBuffer = lines.pop() ?? '';
-
-            for (const line of lines) {
-                const cleanLine = line.replace(ansiRegex, '').trimEnd();
-                if (parseLine(cleanLine, run, itemToRun, testMap, currentSuiteName, (s) => { currentSuiteName = s; })) {
-                    hasSeenAnyResult = true;
-                }
-            }
         });
 
         child.stderr.on('data', (data: Buffer) => {
@@ -96,8 +84,16 @@ export async function runNimTests(
         });
 
         child.on('close', (code) => {
-            if (outputBuffer) {
-                parseLine(outputBuffer, run, itemToRun, testMap, currentSuiteName, (s) => { currentSuiteName = s; });
+            // Check if XML exists and parse it
+            if (fs.existsSync(xmlPath)) {
+                try {
+                    const xmlContent = fs.readFileSync(xmlPath, 'utf8');
+                    if (parseXmlResults(xmlContent, run, itemToRun, testMap)) {
+                        hasSeenAnyResult = true;
+                    }
+                } catch (err) {
+                    run.appendOutput(`\r\n[Extension Error] Failed to parse XML results: ${err}\r\n`);
+                }
             }
 
             // Only mark as errored if we didn't see any test results (e.g. compile error)
@@ -130,6 +126,61 @@ export async function runNimTests(
     });
 }
 
+function parseXmlResults(
+    xmlContent: string,
+    run: vscode.TestRun,
+    itemToRun: vscode.TestItem,
+    testMap: Map<string, vscode.TestItem>
+): boolean {
+    const fileUri = itemToRun.uri!.toString();
+    const parser = new XMLParser({
+        ignoreAttributes: false,
+        attributeNamePrefix: '',
+        parseAttributeValue: true
+    });
+
+    const jsonObj = parser.parse(xmlContent);
+    if (!jsonObj) { return false; }
+
+    let hasResults = false;
+
+    // The root could be <testsuites> or <testsuite>
+    const suitesData = jsonObj.testsuites?.testsuite ?? jsonObj.testsuite;
+    if (!suitesData) { return false; }
+
+    // Normalize to array
+    const suites = Array.isArray(suitesData) ? suitesData : [suitesData];
+
+    for (const suite of suites) {
+        const suiteName = suite.name || '';
+        const casesData = suite.testcase;
+        if (!casesData) { continue; }
+
+        const cases = Array.isArray(casesData) ? casesData : [casesData];
+
+        for (const testCase of cases) {
+            const testName = testCase.name;
+            if (!testName) { continue; }
+
+            const item = findTestItem(testMap, fileUri, suiteName, testName, run);
+            if (item) {
+                hasResults = true;
+                if (testCase.failure) {
+                    const message = testCase.failure.message || 'Test failed';
+                    const details = typeof testCase.failure === 'string' ? testCase.failure : (testCase.failure['#text'] || '');
+                    run.failed(item, new vscode.TestMessage(`${message}\n\n${details}`));
+                } else if (testCase.skipped !== undefined) {
+                    run.skipped(item);
+                } else {
+                    run.passed(item);
+                }
+            }
+        }
+    }
+
+    return hasResults;
+}
+
 function collectItems(item: vscode.TestItem, map: Map<string, vscode.TestItem>): void {
     map.set(item.id, item);
     item.children.forEach(child => {
@@ -137,54 +188,6 @@ function collectItems(item: vscode.TestItem, map: Map<string, vscode.TestItem>):
     });
 }
 
-function parseLine(
-    line: string,
-    run: vscode.TestRun,
-    itemToRun: vscode.TestItem,
-    testMap: Map<string, vscode.TestItem>,
-    currentSuiteName: string,
-    setSuite: (s: string) => void
-): boolean {
-    const fileUri = itemToRun.uri!.toString();
-
-    // Verbose Suite header: "[Suite  ] Suite Name"
-    const suiteMatch = line.match(/^\s*\[Suite\s*\]\s+(.+)$/);
-    if (suiteMatch) {
-        const sName = suiteMatch[1].trim();
-        run.appendOutput(`[Extension Debug] Found Suite: "${sName}"\n`);
-        setSuite(sName);
-        return false;
-    }
-
-    // Status markers: [OK     ], [FAILED ], [SKIPPED]
-    const statusMatch = line.match(/^\s*\[(OK|FAILED|SKIPPED)\s*\][^(]*\(\s*[\d.]+s\)\s+(.+)$/);
-    if (statusMatch) {
-        const status = statusMatch[1];
-        const testName = statusMatch[2].trim();
-        run.appendOutput(`[Extension Debug] Found Result: [${status}] for test "${testName}" (Suite: "${currentSuiteName}")\n`);
-
-        const item = findTestItem(testMap, fileUri, currentSuiteName, testName, run);
-        if (item) {
-            if (status === 'OK') {
-                run.appendOutput(`[Extension Debug] Marking "${item.id}" as PASSED\n`);
-                run.passed(item);
-            } else if (status === 'FAILED') {
-                run.appendOutput(`[Extension Debug] Marking "${item.id}" as FAILED\n`);
-                run.failed(item, new vscode.TestMessage(`Test "${testName}" failed`));
-            } else {
-                run.appendOutput(`[Extension Debug] Marking "${item.id}" as SKIPPED\n`);
-                run.skipped(item);
-            }
-            return true;
-        } else {
-            run.appendOutput(`[Extension Debug] Could not find TestItem for "${testName}" in suite "${currentSuiteName}"\n`);
-            // List all keys in map for debugging
-            run.appendOutput(`[Extension Debug] Available IDs in map: ${Array.from(testMap.keys()).join(', ')}\n`);
-        }
-    }
-
-    return false;
-}
 
 function findTestItem(
     testMap: Map<string, vscode.TestItem>,

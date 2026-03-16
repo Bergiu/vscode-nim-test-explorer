@@ -6,7 +6,7 @@ A VS Code extension that integrates Nim's testing ecosystem with VS Code's **nat
 
 1. **Test Discovery**: Automatically scans `.nim` files in the configured test directory for `suite` and `test` blocks.
 2. **Test Execution**: Runs individual tests, suites, or all tests using `nim c -r`.
-3. **Result Parsing**: Parses `unittest2` console output and reports `passed`, `failed`, and `skipped` states per test.
+3. **Result Parsing**: Uses the `fast-xml-parser` library to read JUnit XML results from `unittest2`, providing robust reporting for `passed`, `failed`, and `skipped` states.
 4. **File Watching**: Automatically refreshes the test tree when `.nim` files change.
 
 ## Getting Started (Development)
@@ -39,7 +39,7 @@ This extension uses VS Code's native Testing API:
 - **`src/main.ts`** — `activate()` creates the `NimTestController` and subscribes it to the extension context.
 - **`src/nimTestAdapter.ts`** — Core controller. Creates a `vscode.TestController`, discovers tests via the parser, watches for file changes, and runs tests via the runner.
 - **`src/parser/testParser.ts`** — Scans `.nim` files with regex for `suite` and `test` declarations, returning `vscode.TestItem` objects.
-- **`src/runner/testRunner.ts`** — Spawns `nim c -r` as a child process and parses stdout to report results via `vscode.TestRun`.
+- **`src/runner/testRunner.ts`** — Spawns `nim c -r` with the `--xml` flag and parses the resulting JUnit XML using `fast-xml-parser` to report results via `vscode.TestRun`.
 
 ## Installing Locally (as a `.vsix` package)
 

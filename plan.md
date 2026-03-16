@@ -39,10 +39,16 @@ Configurable via VS Code settings (`settings.json`):
 
 ## 5. Future Improvements [ ]
 
-- **Structured output:** [x] Use `unittest2`'s JUnit XML output (`--xml:<file>`) instead of stdout parsing for more reliable result capture.
+- **Structured output:** [x] Use `unittest2`'s JUnit XML output (`--xml:<file>`) for reliable capture. Added fallback stdout parsing to support standard `unittest`.
 - **Nimble integration:** [x] Support running `nimble c -r` instead of `nim c -r` directly, for projects with complex build setups.
 - **Granular test filtering:** [x] Pass specific test names to the executable to avoid running unselected tests. Includes suite filtering and batch execution optimization.
 - **Debug profile:** [x] Add a `vscode.TestRunProfileKind.Debug` run profile.
+- **Continuous Testing:** [ ] Support VS Code's "Continuous Run" mode to auto-run tests on save.
+- **Code Coverage:** [ ] Integrate with `nim-cov` (or similar) to show line coverage in the editor.
+- **Rich Results & Diffs:** [ ] Add a diff view for failed assertions and ANSI color support in logs.
+- **Parallel Execution:** [ ] Run test files in parallel to optimize execution time.
+- **Custom Environment & Args:** [ ] Add settings for environment variables and direct test binary arguments.
+- **Auto-cleanup:** [ ] Option to automatically delete temporary binaries and `nimcache` after runs.
 
 ## 6. Resources
 

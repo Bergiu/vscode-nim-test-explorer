@@ -6,7 +6,7 @@ A VS Code extension that integrates Nim's testing ecosystem with VS Code's **nat
 
 1. **Test Discovery**: Automatically scans `.nim` files in the configured test directory for `suite` and `test` blocks.
 2. **Test Execution**: Runs individual tests, suites, or all tests using `nim c -r`.
-3. **Result Parsing**: Uses the `fast-xml-parser` library to read JUnit XML results from `unittest2`, providing robust reporting for `passed`, `failed`, and `skipped` states.
+3. **Result Parsing**: Uses the `fast-xml-parser` library to read JUnit XML results from `unittest2`. It also includes a robust **fallback stdout parser** for the standard `unittest` library, ensuring results are captured even when XML output is unavailable.
 4. **Granular Filtering**: Run individual tests or entire suites with correct globbing (e.g., `SuiteName::*`).
 5. **Performance Batching**: Multiple test selections in the same file are batched into a single process execution to minimize compilation and runtime overhead.
 6. **Integrated Debugging**: Debug your tests directly from the Testing view with standard VS Code debuggers (GDB/LLDB).
@@ -44,7 +44,7 @@ This extension uses VS Code's native Testing API:
 - **`src/main.ts`** — `activate()` creates the `NimTestController` and subscribes it to the extension context.
 - **`src/nimTestAdapter.ts`** — Core controller. Creates a `vscode.TestController`, discovers tests via the parser, watches for file changes, and runs tests via the runner.
 - **`src/parser/testParser.ts`** — Scans `.nim` files with regex for `suite` and `test` declarations, returning `vscode.TestItem` objects.
-- **`src/runner/testRunner.ts`** — Spawns `nim c -r` with the `--xml` flag and parses the resulting JUnit XML using `fast-xml-parser`. Also handles the **Debug profile** by compiling with symbols and launching a VS Code debug session.
+- **`src/runner/testRunner.ts`** — Spawns `nim c -r`. It detects whether the test file uses `unittest` or `unittest2` to provide the correct flags. It parses JUnit XML (from `unittest2`) or falls back to a regex-based stdout parser (for standard `unittest`). Also handles the **Debug profile** by compiling with symbols and launching a VS Code debug session.
 
 ## Installing Locally (as a `.vsix` package)
 

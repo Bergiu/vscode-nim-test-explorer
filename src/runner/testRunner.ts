@@ -60,7 +60,20 @@ export async function runNimTests(
     }
 
     run.appendOutput(`\r\n[Extension Debug] Running file: ${fileUri}\r\n`);
-    run.appendOutput(`[Extension Debug] Filters: ${filters.join(', ') || '(none - running all)'}\r\n`);
+    
+    // Detect if we are using unittest or unittest2
+    let isUnittest2 = true;
+    try {
+        const content = fs.readFileSync(filePath, 'utf8');
+        isUnittest2 = content.includes('import unittest2');
+    } catch (e) {
+        run.appendOutput(`[Extension Warning] Failed to read file for library detection: ${e}\r\n`);
+    }
+
+    const filteredFilters = isUnittest2 ? filters : filters.map(f => f.replace(/.*::/, ''));
+
+    run.appendOutput(`[Extension Debug] Library: ${isUnittest2 ? 'unittest2' : 'unittest'}\r\n`);
+    run.appendOutput(`[Extension Debug] Filters: ${filteredFilters.join(', ') || '(none - running all)'}\r\n`);
     run.appendOutput(`[Extension Debug] Using Nimble: ${useNimble}\r\n`);
 
     return new Promise((resolve) => {
@@ -81,11 +94,9 @@ export async function runNimTests(
             commonFlags.push('--debuginfo', '-g', '--lineDir:on');
         }
 
-        const runnerFlags = [
-            '--output-level=VERBOSE',
-            `--xml:${xmlPath}`,
-            ...filters
-        ];
+        const runnerFlags = isUnittest2 
+            ? ['--output-level=VERBOSE', `--xml:${xmlPath}`, ...filteredFilters]
+            : [...filteredFilters];
 
         let hasSeenAnyResult = false;
 
@@ -150,7 +161,9 @@ export async function runNimTests(
                 token.onCancellationRequested(() => child.kill());
 
                 child.stdout.on('data', (data: Buffer) => {
-                    run.appendOutput(data.toString().replace(/\r?\n/g, '\r\n'));
+                    const text = data.toString();
+                    run.appendOutput(text.replace(/\r?\n/g, '\r\n'));
+                    stdoutBuffer += text;
                 });
 
                 child.stderr.on('data', (data: Buffer) => {
@@ -169,15 +182,26 @@ export async function runNimTests(
             }
         };
 
+        let stdoutBuffer = '';
+
         const finishRun = (code: number | null) => {
+            let resultsFound = false;
             if (fs.existsSync(xmlPath)) {
                 try {
                     const xmlContent = fs.readFileSync(xmlPath, 'utf8');
                     if (parseXmlResults(xmlContent, run, firstItem, testMap)) {
+                        resultsFound = true;
                         hasSeenAnyResult = true;
                     }
                 } catch (err) {
                     run.appendOutput(`\r\n[Extension Error] Failed to parse XML results: ${err}\r\n`);
+                }
+            }
+
+            if (!resultsFound && stdoutBuffer) {
+                run.appendOutput(`\r\n[Extension Debug] XML results not found or empty. Falling back to stdout parsing...\r\n`);
+                if (parseStdoutResults(stdoutBuffer, run, firstItem, testMap)) {
+                    hasSeenAnyResult = true;
                 }
             }
 
@@ -247,7 +271,9 @@ export async function runNimTests(
             token.onCancellationRequested(() => child.kill());
 
             child.stdout.on('data', (data: Buffer) => {
-                run.appendOutput(data.toString().replace(/\r?\n/g, '\r\n'));
+                const text = data.toString();
+                run.appendOutput(text.replace(/\r?\n/g, '\r\n'));
+                stdoutBuffer += text;
             });
 
             child.stderr.on('data', (data: Buffer) => {
@@ -320,6 +346,76 @@ function parseXmlResults(
                     run.passed(item);
                 }
             }
+        }
+    }
+
+    return hasResults;
+}
+
+function parseStdoutResults(
+    stdout: string,
+    run: vscode.TestRun,
+    itemToRun: vscode.TestItem,
+    testMap: Map<string, vscode.TestItem>
+): boolean {
+    const fileUri = itemToRun.uri!.toString();
+    const lines = stdout.split(/\r?\n/);
+    let currentSuiteName = '';
+    let hasResults = false;
+    let pendingFailureMessage = '';
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+        
+        // Suite: [Suite] Name
+        const suiteMatch = trimmed.match(/^\[Suite\]\s+(.+)$/);
+        if (suiteMatch) {
+            currentSuiteName = suiteMatch[1].trim();
+            continue;
+        }
+
+        // Passed: [OK] Name
+        const okMatch = trimmed.match(/^\[OK\]\s+(.+)$/);
+        if (okMatch) {
+            const testName = okMatch[1].trim();
+            const item = findTestItem(testMap, fileUri, currentSuiteName, testName, run);
+            if (item) {
+                run.passed(item);
+                hasResults = true;
+            }
+            pendingFailureMessage = '';
+            continue;
+        }
+
+        // Failed: [FAILED] Name
+        const failedMatch = trimmed.match(/^\[FAILED\]\s+(.+)$/);
+        if (failedMatch) {
+            const testName = failedMatch[1].trim();
+            const item = findTestItem(testMap, fileUri, currentSuiteName, testName, run);
+            if (item) {
+                run.failed(item, new vscode.TestMessage(pendingFailureMessage || 'Test failed'));
+                hasResults = true;
+            }
+            pendingFailureMessage = '';
+            continue;
+        }
+
+        // Skipped: [SKIPPED] Name
+        const skippedMatch = trimmed.match(/^\[SKIPPED\]\s+(.+)$/);
+        if (skippedMatch) {
+            const testName = skippedMatch[1].trim();
+            const item = findTestItem(testMap, fileUri, currentSuiteName, testName, run);
+            if (item) {
+                run.skipped(item);
+                hasResults = true;
+            }
+            pendingFailureMessage = '';
+            continue;
+        }
+
+        // Collect failure details (not starting with [)
+        if (trimmed && !trimmed.startsWith('[')) {
+            pendingFailureMessage += (pendingFailureMessage ? '\n' : '') + trimmed;
         }
     }
 

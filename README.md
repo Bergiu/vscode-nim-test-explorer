@@ -29,6 +29,7 @@ A VS Code extension that integrates Nim's testing ecosystem with VS Code's **nat
 | Setting | Default | Description |
 |---|---|---|
 | `nimTestExplorer.testPath` | `tests/` | Relative path to the tests directory |
+| `nimTestExplorer.useNimble` | `false` | Use `nimble c -r` instead of `nim c -r` to run tests. |
 | `nimTestExplorer.nimblePath` | `nimble` | Path to the `nimble` executable |
 | `nimTestExplorer.compilerArgs` | _(empty)_ | Extra flags to pass to the Nim compiler |
 

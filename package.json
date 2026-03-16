@@ -17,7 +17,8 @@
   ],
   "main": "./out/main.js",
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onLanguage:nim"
   ],
   "contributes": {
     "configuration": {
@@ -32,6 +33,16 @@
           "type": "string",
           "default": "tests/",
           "description": "Relative path to the tests directory"
+        },
+        "nimTestExplorer.useNimble": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use 'nimble c -r' instead of 'nim c -r' to run tests. This is useful for projects with complex dependencies."
+        },
+        "nimTestExplorer.compilerArgs": {
+          "type": "string",
+          "default": "",
+          "description": "Extra arguments to pass to the Nim compiler (e.g. -d:release or --threads:on)"
         }
       }
     }

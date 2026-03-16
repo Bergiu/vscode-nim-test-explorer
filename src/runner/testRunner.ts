@@ -19,6 +19,8 @@ export async function runNimTests(
     const config = workspace
         ? vscode.workspace.getConfiguration('nimTestExplorer', workspace.uri)
         : vscode.workspace.getConfiguration('nimTestExplorer');
+    const useNimble = config.get<boolean>('useNimble') ?? false;
+    const nimblePath = config.get<string>('nimblePath') ?? 'nimble';
     const compilerArgsStr = config.get<string>('compilerArgs') ?? '';
     const compilerArgs = compilerArgsStr ? compilerArgsStr.split(' ') : [];
 
@@ -41,88 +43,174 @@ export async function runNimTests(
 
     run.appendOutput(`\r\n[Extension Debug] Running: ${itemToRun.id}\r\n`);
     run.appendOutput(`[Extension Debug] Filter: ${filter || '(none)'}\r\n`);
+    run.appendOutput(`[Extension Debug] Using Nimble: ${useNimble}\r\n`);
 
     return new Promise((resolve) => {
         // Create a temporary directory for the test binary and nimcache
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nim-tests-'));
         const xmlPath = path.join(tmpDir, 'results.xml');
+        const binName = path.basename(filePath, '.nim');
+        const binPath = path.join(tmpDir, binName);
         
-        const args = [
-            'c', 
-            '-r', 
+        const commonFlags = [
             '--hints:off', 
             `--outdir:${tmpDir}`, 
             `--nimcache:${path.join(tmpDir, 'nimcache')}`,
-            ...compilerArgs, 
-            filePath, 
+            ...compilerArgs
+        ];
+
+        const runnerFlags = [
             '--output-level=VERBOSE',
             `--xml:${xmlPath}`
         ];
         if (filter) {
-            args.push(filter);
+            runnerFlags.push(filter);
         }
-        const child = cp.spawn('nim', args, { cwd });
 
         let hasSeenAnyResult = false;
 
-        if (token.isCancellationRequested) {
-            child.kill();
-            try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {}
-            resolve();
-            return;
-        }
-        token.onCancellationRequested(() => child.kill());
-
-        child.stdout.on('data', (data: Buffer) => {
-            const text = data.toString();
-            run.appendOutput(text.replace(/\r?\n/g, '\r\n'));
-        });
-
-        child.stderr.on('data', (data: Buffer) => {
-            const text = data.toString();
-            run.appendOutput(text.replace(/\r?\n/g, '\r\n'));
-        });
-
-        child.on('close', (code) => {
-            // Check if XML exists and parse it
-            if (fs.existsSync(xmlPath)) {
-                try {
-                    const xmlContent = fs.readFileSync(xmlPath, 'utf8');
-                    if (parseXmlResults(xmlContent, run, itemToRun, testMap)) {
-                        hasSeenAnyResult = true;
-                    }
-                } catch (err) {
-                    run.appendOutput(`\r\n[Extension Error] Failed to parse XML results: ${err}\r\n`);
-                }
-            }
-
-            // Only mark as errored if we didn't see any test results (e.g. compile error)
-            // and the process exited with a non-zero code.
-            if (code !== 0 && !hasSeenAnyResult && !token.isCancellationRequested) {
-                testMap.forEach(item => {
-                    run.errored(item, new vscode.TestMessage(`Process exited with code ${code}. Check output for compilation errors.`));
-                });
-            }
-
-            // Clean up temporary directory
+        const cleanup = () => {
             try {
                 fs.rmSync(tmpDir, { recursive: true, force: true });
             } catch (e) {
                 console.error(`Failed to clean up temp dir ${tmpDir}:`, e);
             }
-            resolve();
-        });
+        };
 
-        child.on('error', (err) => {
-            run.appendOutput(`\r\nFailed to start nim: ${err.message}\r\n`);
-            // Clean up temporary directory
-            try {
-                fs.rmSync(tmpDir, { recursive: true, force: true });
-            } catch (e) {
-                // Ignore if it doesn't exist yet
+        const runBinary = () => {
+            if (token.isCancellationRequested) {
+                cleanup();
+                resolve();
+                return;
             }
-            resolve();
-        });
+
+            run.appendOutput(`[Extension Debug] Executing binary: ${binPath} ${runnerFlags.join(' ')}\r\n`);
+            
+            const child = cp.spawn(binPath, runnerFlags, { cwd });
+
+            token.onCancellationRequested(() => child.kill());
+
+            child.stdout.on('data', (data: Buffer) => {
+                run.appendOutput(data.toString().replace(/\r?\n/g, '\r\n'));
+            });
+
+            child.stderr.on('data', (data: Buffer) => {
+                run.appendOutput(data.toString().replace(/\r?\n/g, '\r\n'));
+            });
+
+            child.on('close', (code) => {
+                if (fs.existsSync(xmlPath)) {
+                    try {
+                        const xmlContent = fs.readFileSync(xmlPath, 'utf8');
+                        if (parseXmlResults(xmlContent, run, itemToRun, testMap)) {
+                            hasSeenAnyResult = true;
+                        }
+                    } catch (err) {
+                        run.appendOutput(`\r\n[Extension Error] Failed to parse XML results: ${err}\r\n`);
+                    }
+                }
+
+                if (code !== 0 && !hasSeenAnyResult && !token.isCancellationRequested) {
+                    testMap.forEach(item => {
+                        run.errored(item, new vscode.TestMessage(`Process exited with code ${code}. Check output for errors.`));
+                    });
+                }
+
+                cleanup();
+                resolve();
+            });
+
+            child.on('error', (err) => {
+                run.appendOutput(`\r\nFailed to start test binary: ${err.message}\r\n`);
+                cleanup();
+                resolve();
+            });
+        };
+
+        if (useNimble) {
+            const compileArgs = ['c', ...commonFlags, filePath];
+            run.appendOutput(`[Extension Debug] Compiling with Nimble: ${nimblePath} ${compileArgs.join(' ')}\r\n`);
+            
+            const compileProcess = cp.spawn(nimblePath, compileArgs, { cwd });
+            
+            token.onCancellationRequested(() => compileProcess.kill());
+
+            compileProcess.stdout.on('data', (data: Buffer) => {
+                run.appendOutput(data.toString().replace(/\r?\n/g, '\r\n'));
+            });
+
+            compileProcess.stderr.on('data', (data: Buffer) => {
+                run.appendOutput(data.toString().replace(/\r?\n/g, '\r\n'));
+            });
+
+            compileProcess.on('close', (code) => {
+                if (code === 0) {
+                    runBinary();
+                } else {
+                    run.appendOutput(`\r\n[Extension Error] Compilation failed with code ${code}\r\n`);
+                    testMap.forEach(item => {
+                        run.errored(item, new vscode.TestMessage(`Compilation failed with code ${code}.`));
+                    });
+                    cleanup();
+                    resolve();
+                }
+            });
+
+            compileProcess.on('error', (err) => {
+                run.appendOutput(`\r\nFailed to start Nimble: ${err.message}\r\n`);
+                cleanup();
+                resolve();
+            });
+        } else {
+            const args = ['c', '-r', ...commonFlags, filePath, ...runnerFlags];
+            run.appendOutput(`[Extension Debug] Running with Nim: nim ${args.join(' ')}\r\n`);
+            
+            const child = cp.spawn('nim', args, { cwd });
+
+            if (token.isCancellationRequested) {
+                child.kill();
+                cleanup();
+                resolve();
+                return;
+            }
+            token.onCancellationRequested(() => child.kill());
+
+            child.stdout.on('data', (data: Buffer) => {
+                run.appendOutput(data.toString().replace(/\r?\n/g, '\r\n'));
+            });
+
+            child.stderr.on('data', (data: Buffer) => {
+                run.appendOutput(data.toString().replace(/\r?\n/g, '\r\n'));
+            });
+
+            child.on('close', (code) => {
+                if (fs.existsSync(xmlPath)) {
+                    try {
+                        const xmlContent = fs.readFileSync(xmlPath, 'utf8');
+                        if (parseXmlResults(xmlContent, run, itemToRun, testMap)) {
+                            hasSeenAnyResult = true;
+                        }
+                    } catch (err) {
+                        run.appendOutput(`\r\n[Extension Error] Failed to parse XML results: ${err}\r\n`);
+                    }
+                }
+
+                if (code !== 0 && !hasSeenAnyResult && !token.isCancellationRequested) {
+                    testMap.forEach(item => {
+                        run.errored(item, new vscode.TestMessage(`Process exited with code ${code}. Check output for compilation errors.`));
+                    });
+                }
+
+                cleanup();
+                resolve();
+            });
+
+            child.on('error', (err) => {
+                run.appendOutput(`\r\nFailed to start nim: ${err.message}\r\n`);
+                cleanup();
+                resolve();
+            });
+        }
     });
 }
 

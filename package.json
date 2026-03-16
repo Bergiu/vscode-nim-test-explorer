@@ -3,6 +3,12 @@
   "displayName": "Nim Test Explorer",
   "description": "Run Nim Unittest/Unittest2 tests in the VS Code Test Explorer",
   "version": "0.1.0",
+  "publisher": "your-publisher-id",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/nim-test-explorer"
+  },
+  "license": "MIT",
   "engines": {
     "vscode": "^1.74.0"
   },

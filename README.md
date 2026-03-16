@@ -40,7 +40,9 @@ A VS Code extension that integrates Nim's testing ecosystem with VS Code's **nat
 | `nimTestExplorer.useNimble` | `false` | Use `nimble c -r` instead of `nim c -r` to run tests. |
 | `nimTestExplorer.nimblePath` | `nimble` | Path to the `nimble` executable |
 | `nimTestExplorer.compilerArgs` | _(empty)_ | Extra flags to pass to the Nim compiler |
-| `nimTestExplorer.debuggerType` | `cppdbg` | The debugger type for the Debug profile (e.g. `cppdbg` or `lldb`). |
+| `nimTestExplorer.debuggerType` | `lldb` | The debugger type for the Debug profile (e.g. `lldb` or `cppdbg`). |
+
+> **Note:** CodeLLDB (`lldb`) is set as the default debugger for better performance, as it avoids loading the C++ language server.
 
 ## Architecture
 
@@ -107,7 +109,16 @@ This is how to build and install the extension as a real VS Code extension (not 
 5. The extension is live at `https://marketplace.visualstudio.com/items?itemName=your-publisher-id.nim-test-explorer` within a few minutes.
 
 > [!NOTE]
-> This extension depends on the **C/C++ (ms-vscode.cpptools)** extension for its debugging features. It will be automatically installed when you install this extension.
+> This extension depends on the **CodeLLDB (vadimcn.vscode-lldb)** extension for its debugging features. It will be automatically installed when you install this extension.
+
+## Changelog
+
+### 0.5.0
+- Switched default debugger from cppdbg (C/C++ extension) to lldb (CodeLLDB) for faster activation by avoiding C++ language server load.
+- Updated extension dependency to CodeLLDB.
+
+### 0.4.0
+- Initial release with Nim test discovery and execution.
 
 ## License
 

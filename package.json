@@ -1,8 +1,8 @@
 {
   "name": "nim-test-explorer",
   "displayName": "Nim Test Explorer",
-  "description": "Run Nim Unittest/Unittest2 tests in the VS Code Test Explorer",
-  "version": "0.4.0",
+  "description": "Run and debug Nim Unittest/Unittest2 tests in the VS Code Test Explorer using CodeLLDB",
+  "version": "0.5.0",
   "publisher": "your-publisher-id",
   "repository": {
     "type": "git",
@@ -17,7 +17,7 @@
   ],
   "main": "./out/main.js",
   "extensionDependencies": [
-    "ms-vscode.cpptools"
+    "vadimcn.vscode-lldb"
   ],
   "activationEvents": [
     "onStartupFinished",
@@ -49,8 +49,8 @@
         },
         "nimTestExplorer.debuggerType": {
           "type": "string",
-          "default": "cppdbg",
-          "description": "The type of debugger to use for the Debug profile. Usually 'cppdbg' (C/C++ extension) or 'lldb' (CodeLLDB)."
+          "default": "lldb",
+          "description": "The type of debugger to use for the Debug profile. Usually 'lldb' (CodeLLDB) or 'cppdbg' (C/C++ extension)."
         }
       }
     }

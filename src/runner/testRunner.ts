@@ -1,5 +1,8 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
+import * as os from 'os';
+import * as path from 'path';
+import * as fs from 'fs';
 
 export async function runNimTests(
     itemToRun: vscode.TestItem,
@@ -39,7 +42,19 @@ export async function runNimTests(
     run.appendOutput(`[Extension Debug] Filter: ${filter || '(none)'}\r\n`);
 
     return new Promise((resolve) => {
-        const args = ['c', '-r', '--hints:off', ...compilerArgs, filePath, '--output-level=VERBOSE'];
+        // Create a temporary directory for the test binary and nimcache
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nim-tests-'));
+        
+        const args = [
+            'c', 
+            '-r', 
+            '--hints:off', 
+            `--outdir:${tmpDir}`, 
+            `--nimcache:${path.join(tmpDir, 'nimcache')}`,
+            ...compilerArgs, 
+            filePath, 
+            '--output-level=VERBOSE'
+        ];
         if (filter) {
             args.push(filter);
         }
@@ -51,6 +66,7 @@ export async function runNimTests(
 
         if (token.isCancellationRequested) {
             child.kill();
+            try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {}
             resolve();
             return;
         }
@@ -91,11 +107,24 @@ export async function runNimTests(
                     run.errored(item, new vscode.TestMessage(`Process exited with code ${code}. Check output for compilation errors.`));
                 });
             }
+
+            // Clean up temporary directory
+            try {
+                fs.rmSync(tmpDir, { recursive: true, force: true });
+            } catch (e) {
+                console.error(`Failed to clean up temp dir ${tmpDir}:`, e);
+            }
             resolve();
         });
 
         child.on('error', (err) => {
             run.appendOutput(`\r\nFailed to start nim: ${err.message}\r\n`);
+            // Clean up temporary directory
+            try {
+                fs.rmSync(tmpDir, { recursive: true, force: true });
+            } catch (e) {
+                // Ignore if it doesn't exist yet
+            }
             resolve();
         });
     });

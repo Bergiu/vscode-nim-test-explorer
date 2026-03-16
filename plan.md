@@ -43,6 +43,7 @@ Configurable via VS Code settings (`settings.json`):
 - **Nimble integration:** [x] Support running `nimble c -r` instead of `nim c -r` directly, for projects with complex build setups.
 - **Granular test filtering:** [x] Pass specific test names to the executable to avoid running unselected tests. Includes suite filtering and batch execution optimization.
 - **Debug profile:** [x] Add a `vscode.TestRunProfileKind.Debug` run profile.
+- **Nim Testament:** [ ] Add support for nim testament.
 - **Continuous Testing:** [ ] Support VS Code's "Continuous Run" mode to auto-run tests on save.
 - **Code Coverage:** [ ] Integrate with `nim-cov` (or similar) to show line coverage in the editor.
 - **Rich Results & Diffs:** [ ] Add a diff view for failed assertions and ANSI color support in logs.

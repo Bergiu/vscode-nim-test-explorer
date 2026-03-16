@@ -2,6 +2,11 @@
 
 A VS Code extension that integrates Nim's testing ecosystem with VS Code's **native Testing API** (`vscode.tests.createTestController`). It supports projects using the [`unittest2`](https://github.com/status-im/nim-unittest2) (and standard `unittest`) library, providing automatic test discovery, execution, and result reporting directly in the VS Code Test Explorer (the beaker icon).
 
+> [!WARNING]
+> I created this project because I thought it would be useful to have in the Nim ecosystem.
+> However, I wasn't invested enough to fully build it in the traditional way, so this extension was largely **vibe coded**.
+> I'm sharing it in case others find it useful as well.
+
 ## Features
 
 1. **Test Discovery**: Automatically scans `.nim` files in the configured test directory for `suite` and `test` blocks.

@@ -7,7 +7,9 @@ A VS Code extension that integrates Nim's testing ecosystem with VS Code's **nat
 1. **Test Discovery**: Automatically scans `.nim` files in the configured test directory for `suite` and `test` blocks.
 2. **Test Execution**: Runs individual tests, suites, or all tests using `nim c -r`.
 3. **Result Parsing**: Uses the `fast-xml-parser` library to read JUnit XML results from `unittest2`, providing robust reporting for `passed`, `failed`, and `skipped` states.
-4. **File Watching**: Automatically refreshes the test tree when `.nim` files change.
+4. **Granular Filtering**: Run individual tests or entire suites with correct globbing (e.g., `SuiteName::*`).
+5. **Performance Batching**: Multiple test selections in the same file are batched into a single process execution to minimize compilation and runtime overhead.
+6. **File Watching**: Automatically refreshes the test tree when `.nim` files change.
 
 ## Getting Started (Development)
 
@@ -55,7 +57,7 @@ This is how to build and install the extension as a real VS Code extension (not 
    ```bash
    npx @vscode/vsce package
    ```
-   This creates a `.vsix` file (e.g. `nim-test-explorer-0.1.0.vsix`) in the project root.
+   This creates a `.vsix` file (e.g. `nim-test-explorer-0.2.0.vsix`) in the project root.
 
 4. **Install the `.vsix` in VS Code:**
    - Open VS Code.
@@ -65,7 +67,7 @@ This is how to build and install the extension as a real VS Code extension (not 
 
    Or from the terminal:
    ```bash
-   code --install-extension nim-test-explorer-0.1.0.vsix
+   code --install-extension nim-test-explorer-0.2.0.vsix
    ```
 
 ## Publishing to the VS Code Marketplace

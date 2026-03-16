@@ -6,14 +6,19 @@ import * as fs from 'fs';
 import { XMLParser } from 'fast-xml-parser';
 
 export async function runNimTests(
-    itemToRun: vscode.TestItem,
+    items: vscode.TestItem[],
     run: vscode.TestRun,
     workspace: vscode.WorkspaceFolder | undefined,
     token: vscode.CancellationToken
 ): Promise<void> {
-    if (!itemToRun.uri) { return; }
-    const fileUri = itemToRun.uri.toString();
-    const filePath = itemToRun.uri.fsPath;
+    if (items.length === 0) { return; }
+    
+    // All items should be from the same file
+    const firstItem = items[0];
+    if (!firstItem.uri) { return; }
+    
+    const fileUri = firstItem.uri.toString();
+    const filePath = firstItem.uri.fsPath;
     const cwd = workspace?.uri.fsPath ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
 
     const config = workspace
@@ -24,9 +29,9 @@ export async function runNimTests(
     const compilerArgsStr = config.get<string>('compilerArgs') ?? '';
     const compilerArgs = compilerArgsStr ? compilerArgsStr.split(' ') : [];
 
-    // Build a map from test ID → TestItem for all descendants
+    // Build a map from test ID → TestItem for all descendants of all selected items
     const testMap = new Map<string, vscode.TestItem>();
-    collectItems(itemToRun, testMap);
+    items.forEach(item => collectItems(item, testMap));
 
     run.appendOutput(`\r\n[Extension Debug] Map contains ${testMap.size} items:\n`);
     for (const [id, item] of testMap.entries()) {
@@ -36,13 +41,23 @@ export async function runNimTests(
     // Mark all as enqueued
     testMap.forEach(item => run.enqueued(item));
 
-    // Determine filter (if we're running a specific test or suite)
-    const filter = itemToRun.id === fileUri 
-        ? '' 
-        : itemToRun.id.substring(fileUri.length + 2); // Skip the '::'
+    // Determine filters
+    const filters: string[] = [];
+    const runAllInFile = items.some(item => item.id === fileUri);
 
-    run.appendOutput(`\r\n[Extension Debug] Running: ${itemToRun.id}\r\n`);
-    run.appendOutput(`[Extension Debug] Filter: ${filter || '(none)'}\r\n`);
+    if (!runAllInFile) {
+        for (const item of items) {
+            let filter = item.id.substring(fileUri.length + 2); // Skip the '::'
+            // If it's a suite, append '::*' to run all tests within it
+            if (item.children.size > 0) {
+                filter += '::*';
+            }
+            filters.push(filter);
+        }
+    }
+
+    run.appendOutput(`\r\n[Extension Debug] Running file: ${fileUri}\r\n`);
+    run.appendOutput(`[Extension Debug] Filters: ${filters.join(', ') || '(none - running all)'}\r\n`);
     run.appendOutput(`[Extension Debug] Using Nimble: ${useNimble}\r\n`);
 
     return new Promise((resolve) => {
@@ -61,11 +76,9 @@ export async function runNimTests(
 
         const runnerFlags = [
             '--output-level=VERBOSE',
-            `--xml:${xmlPath}`
+            `--xml:${xmlPath}`,
+            ...filters
         ];
-        if (filter) {
-            runnerFlags.push(filter);
-        }
 
         let hasSeenAnyResult = false;
 
@@ -102,7 +115,7 @@ export async function runNimTests(
                 if (fs.existsSync(xmlPath)) {
                     try {
                         const xmlContent = fs.readFileSync(xmlPath, 'utf8');
-                        if (parseXmlResults(xmlContent, run, itemToRun, testMap)) {
+                        if (parseXmlResults(xmlContent, run, firstItem, testMap)) {
                             hasSeenAnyResult = true;
                         }
                     } catch (err) {
@@ -187,7 +200,7 @@ export async function runNimTests(
                 if (fs.existsSync(xmlPath)) {
                     try {
                         const xmlContent = fs.readFileSync(xmlPath, 'utf8');
-                        if (parseXmlResults(xmlContent, run, itemToRun, testMap)) {
+                        if (parseXmlResults(xmlContent, run, firstItem, testMap)) {
                             hasSeenAnyResult = true;
                         }
                     } catch (err) {

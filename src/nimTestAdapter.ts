@@ -85,21 +85,40 @@ export class NimTestController implements vscode.Disposable {
     ): Promise<void> {
         const run = this.controller.createTestRun(request);
 
-        // Collect all test items to run
-        const itemsToRun: vscode.TestItem[] = [];
+        // Group items by workspace folder and then by URI/file
+        const itemsByWs = new Map<vscode.WorkspaceFolder | undefined, Map<string, vscode.TestItem[]>>();
+
+        const collectItemsToRun = (items: Iterable<vscode.TestItem>) => {
+            for (const item of items) {
+                if (token.isCancellationRequested) { break; }
+                if (item.uri) {
+                    const ws = vscode.workspace.getWorkspaceFolder(item.uri);
+                    const uriStr = item.uri.toString();
+                    if (!itemsByWs.has(ws)) { itemsByWs.set(ws, new Map()); }
+                    const fileGroups = itemsByWs.get(ws)!;
+                    if (!fileGroups.has(uriStr)) { fileGroups.set(uriStr, []); }
+                    fileGroups.get(uriStr)!.push(item);
+                }
+            }
+        };
+
         if (request.include) {
-            request.include.forEach(item => itemsToRun.push(item));
+            collectItemsToRun(request.include);
         } else {
-            this.controller.items.forEach(item => itemsToRun.push(item));
+            // TestItemCollection is iterable but yields [id, TestItem] pairs
+            for (const [id, item] of this.controller.items) {
+                collectItemsToRun([item]);
+            }
         }
 
-        for (const item of itemsToRun) {
+        for (const [ws, fileGroups] of itemsByWs) {
             if (token.isCancellationRequested) { break; }
-
-            // If it's a file-level item, run all tests in that file
-            if (item.uri) {
-                const workspaceFolder = vscode.workspace.getWorkspaceFolder(item.uri);
-                await runNimTests(item, run, workspaceFolder, token);
+            for (const [uriStr, items] of fileGroups) {
+                if (token.isCancellationRequested) { break; }
+                // We pick the first item to get the common URI info, 
+                // but implementation should ideally handle the list.
+                // runNimTests will be updated to handle multiple items.
+                await runNimTests(items, run, ws, token);
             }
         }
 

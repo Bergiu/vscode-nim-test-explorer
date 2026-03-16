@@ -2,7 +2,7 @@
   "name": "nim-test-explorer",
   "displayName": "Nim Test Explorer",
   "description": "Run Nim Unittest/Unittest2 tests in the VS Code Test Explorer",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "your-publisher-id",
   "repository": {
     "type": "git",
@@ -16,6 +16,9 @@
     "Testing"
   ],
   "main": "./out/main.js",
+  "extensionDependencies": [
+    "ms-vscode.cpptools"
+  ],
   "activationEvents": [
     "onStartupFinished",
     "onLanguage:nim"
@@ -43,6 +46,11 @@
           "type": "string",
           "default": "",
           "description": "Extra arguments to pass to the Nim compiler (e.g. -d:release or --threads:on)"
+        },
+        "nimTestExplorer.debuggerType": {
+          "type": "string",
+          "default": "cppdbg",
+          "description": "The type of debugger to use for the Debug profile. Usually 'cppdbg' (C/C++ extension) or 'lldb' (CodeLLDB)."
         }
       }
     }

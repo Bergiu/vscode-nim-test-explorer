@@ -9,7 +9,8 @@ A VS Code extension that integrates Nim's testing ecosystem with VS Code's **nat
 3. **Result Parsing**: Uses the `fast-xml-parser` library to read JUnit XML results from `unittest2`, providing robust reporting for `passed`, `failed`, and `skipped` states.
 4. **Granular Filtering**: Run individual tests or entire suites with correct globbing (e.g., `SuiteName::*`).
 5. **Performance Batching**: Multiple test selections in the same file are batched into a single process execution to minimize compilation and runtime overhead.
-6. **File Watching**: Automatically refreshes the test tree when `.nim` files change.
+6. **Integrated Debugging**: Debug your tests directly from the Testing view with standard VS Code debuggers (GDB/LLDB).
+7. **File Watching**: Automatically refreshes the test tree when `.nim` files change.
 
 ## Getting Started (Development)
 
@@ -34,6 +35,7 @@ A VS Code extension that integrates Nim's testing ecosystem with VS Code's **nat
 | `nimTestExplorer.useNimble` | `false` | Use `nimble c -r` instead of `nim c -r` to run tests. |
 | `nimTestExplorer.nimblePath` | `nimble` | Path to the `nimble` executable |
 | `nimTestExplorer.compilerArgs` | _(empty)_ | Extra flags to pass to the Nim compiler |
+| `nimTestExplorer.debuggerType` | `cppdbg` | The debugger type for the Debug profile (e.g. `cppdbg` or `lldb`). |
 
 ## Architecture
 
@@ -42,7 +44,7 @@ This extension uses VS Code's native Testing API:
 - **`src/main.ts`** — `activate()` creates the `NimTestController` and subscribes it to the extension context.
 - **`src/nimTestAdapter.ts`** — Core controller. Creates a `vscode.TestController`, discovers tests via the parser, watches for file changes, and runs tests via the runner.
 - **`src/parser/testParser.ts`** — Scans `.nim` files with regex for `suite` and `test` declarations, returning `vscode.TestItem` objects.
-- **`src/runner/testRunner.ts`** — Spawns `nim c -r` with the `--xml` flag and parses the resulting JUnit XML using `fast-xml-parser` to report results via `vscode.TestRun`.
+- **`src/runner/testRunner.ts`** — Spawns `nim c -r` with the `--xml` flag and parses the resulting JUnit XML using `fast-xml-parser`. Also handles the **Debug profile** by compiling with symbols and launching a VS Code debug session.
 
 ## Installing Locally (as a `.vsix` package)
 
@@ -57,7 +59,7 @@ This is how to build and install the extension as a real VS Code extension (not 
    ```bash
    npx @vscode/vsce package
    ```
-   This creates a `.vsix` file (e.g. `nim-test-explorer-0.2.0.vsix`) in the project root.
+   This creates a `.vsix` file (e.g. `nim-test-explorer-0.3.0.vsix`) in the project root.
 
 4. **Install the `.vsix` in VS Code:**
    - Open VS Code.
@@ -67,7 +69,7 @@ This is how to build and install the extension as a real VS Code extension (not 
 
    Or from the terminal:
    ```bash
-   code --install-extension nim-test-explorer-0.2.0.vsix
+   code --install-extension nim-test-explorer-0.3.0.vsix
    ```
 
 ## Publishing to the VS Code Marketplace
@@ -98,6 +100,9 @@ This is how to build and install the extension as a real VS Code extension (not 
    ```
 
 5. The extension is live at `https://marketplace.visualstudio.com/items?itemName=your-publisher-id.nim-test-explorer` within a few minutes.
+
+> [!NOTE]
+> This extension depends on the **C/C++ (ms-vscode.cpptools)** extension for its debugging features. It will be automatically installed when you install this extension.
 
 ## License
 

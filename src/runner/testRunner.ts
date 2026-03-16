@@ -9,7 +9,8 @@ export async function runNimTests(
     items: vscode.TestItem[],
     run: vscode.TestRun,
     workspace: vscode.WorkspaceFolder | undefined,
-    token: vscode.CancellationToken
+    token: vscode.CancellationToken,
+    profileKind: vscode.TestRunProfileKind = vscode.TestRunProfileKind.Run
 ): Promise<void> {
     if (items.length === 0) { return; }
     
@@ -24,6 +25,8 @@ export async function runNimTests(
     const config = workspace
         ? vscode.workspace.getConfiguration('nimTestExplorer', workspace.uri)
         : vscode.workspace.getConfiguration('nimTestExplorer');
+    const isDebug = profileKind === vscode.TestRunProfileKind.Debug;
+    const debuggerType = config.get<string>('debuggerType') ?? 'cppdbg';
     const useNimble = config.get<boolean>('useNimble') ?? false;
     const nimblePath = config.get<string>('nimblePath') ?? 'nimble';
     const compilerArgsStr = config.get<string>('compilerArgs') ?? '';
@@ -74,6 +77,10 @@ export async function runNimTests(
             ...compilerArgs
         ];
 
+        if (isDebug) {
+            commonFlags.push('--debuginfo', '-g', '--lineDir:on');
+        }
+
         const runnerFlags = [
             '--output-level=VERBOSE',
             `--xml:${xmlPath}`,
@@ -90,54 +97,98 @@ export async function runNimTests(
             }
         };
 
-        const runBinary = () => {
+        const runBinary = async () => {
             if (token.isCancellationRequested) {
                 cleanup();
                 resolve();
                 return;
             }
 
-            run.appendOutput(`[Extension Debug] Executing binary: ${binPath} ${runnerFlags.join(' ')}\r\n`);
-            
-            const child = cp.spawn(binPath, runnerFlags, { cwd });
+            if (isDebug) {
+                run.appendOutput(`[Extension Debug] Starting debug session for: ${binPath}\r\n`);
+                
+                const debugConfiguration: vscode.DebugConfiguration = {
+                    name: `Nim Test: ${binName}`,
+                    type: debuggerType,
+                    request: 'launch',
+                    program: binPath,
+                    args: runnerFlags,
+                    cwd: cwd,
+                    console: 'internalConsole',
+                    stopAtEntry: false,
+                };
 
-            token.onCancellationRequested(() => child.kill());
-
-            child.stdout.on('data', (data: Buffer) => {
-                run.appendOutput(data.toString().replace(/\r?\n/g, '\r\n'));
-            });
-
-            child.stderr.on('data', (data: Buffer) => {
-                run.appendOutput(data.toString().replace(/\r?\n/g, '\r\n'));
-            });
-
-            child.on('close', (code) => {
-                if (fs.existsSync(xmlPath)) {
-                    try {
-                        const xmlContent = fs.readFileSync(xmlPath, 'utf8');
-                        if (parseXmlResults(xmlContent, run, firstItem, testMap)) {
-                            hasSeenAnyResult = true;
-                        }
-                    } catch (err) {
-                        run.appendOutput(`\r\n[Extension Error] Failed to parse XML results: ${err}\r\n`);
-                    }
-                }
-
-                if (code !== 0 && !hasSeenAnyResult && !token.isCancellationRequested) {
+                const sessionStarted = await vscode.debug.startDebugging(workspace, debugConfiguration);
+                if (!sessionStarted) {
+                    run.appendOutput(`\r\n[Extension Error] Failed to start debug session.\r\n`);
                     testMap.forEach(item => {
-                        run.errored(item, new vscode.TestMessage(`Process exited with code ${code}. Check output for errors.`));
+                        run.errored(item, new vscode.TestMessage(`Failed to start debug session.`));
                     });
+                    cleanup();
+                    resolve();
+                    return;
                 }
 
-                cleanup();
-                resolve();
-            });
+                // Wait for the session to terminate
+                const disposable = vscode.debug.onDidTerminateDebugSession((session) => {
+                    if (session.name === debugConfiguration.name) {
+                        disposable.dispose();
+                        finishRun(0); // We assume code 0 if it finished normally
+                    }
+                });
 
-            child.on('error', (err) => {
-                run.appendOutput(`\r\nFailed to start test binary: ${err.message}\r\n`);
-                cleanup();
-                resolve();
-            });
+                token.onCancellationRequested(() => {
+                    // Logic to find and stop the specific debug session could be added here
+                    // but onDidTerminateDebugSession will handle the cleanup.
+                });
+
+            } else {
+                run.appendOutput(`[Extension Debug] Executing binary: ${binPath} ${runnerFlags.join(' ')}\r\n`);
+                
+                const child = cp.spawn(binPath, runnerFlags, { cwd });
+
+                token.onCancellationRequested(() => child.kill());
+
+                child.stdout.on('data', (data: Buffer) => {
+                    run.appendOutput(data.toString().replace(/\r?\n/g, '\r\n'));
+                });
+
+                child.stderr.on('data', (data: Buffer) => {
+                    run.appendOutput(data.toString().replace(/\r?\n/g, '\r\n'));
+                });
+
+                child.on('close', (code) => {
+                    finishRun(code);
+                });
+
+                child.on('error', (err) => {
+                    run.appendOutput(`\r\nFailed to start test binary: ${err.message}\r\n`);
+                    cleanup();
+                    resolve();
+                });
+            }
+        };
+
+        const finishRun = (code: number | null) => {
+            if (fs.existsSync(xmlPath)) {
+                try {
+                    const xmlContent = fs.readFileSync(xmlPath, 'utf8');
+                    if (parseXmlResults(xmlContent, run, firstItem, testMap)) {
+                        hasSeenAnyResult = true;
+                    }
+                } catch (err) {
+                    run.appendOutput(`\r\n[Extension Error] Failed to parse XML results: ${err}\r\n`);
+                }
+            }
+
+            if (code !== 0 && !hasSeenAnyResult && !token.isCancellationRequested) {
+                testMap.forEach(item => {
+                    run.errored(item, new vscode.TestMessage(`Process exited with code ${code}. Check output for errors.`));
+                });
+            }
+
+            cleanup();
+            resolve();
         };
 
         if (useNimble) {
@@ -175,7 +226,14 @@ export async function runNimTests(
                 resolve();
             });
         } else {
-            const args = ['c', '-r', ...commonFlags, filePath, ...runnerFlags];
+            const args = ['c', ...commonFlags, filePath];
+            // If not debugging, we can use -r to run it immediately.
+            // If debugging, we must compile first, THEN start debugging the binary.
+            if (!isDebug) {
+                args.splice(1, 0, '-r');
+                args.push(...runnerFlags);
+            }
+
             run.appendOutput(`[Extension Debug] Running with Nim: nim ${args.join(' ')}\r\n`);
             
             const child = cp.spawn('nim', args, { cwd });
@@ -197,25 +255,11 @@ export async function runNimTests(
             });
 
             child.on('close', (code) => {
-                if (fs.existsSync(xmlPath)) {
-                    try {
-                        const xmlContent = fs.readFileSync(xmlPath, 'utf8');
-                        if (parseXmlResults(xmlContent, run, firstItem, testMap)) {
-                            hasSeenAnyResult = true;
-                        }
-                    } catch (err) {
-                        run.appendOutput(`\r\n[Extension Error] Failed to parse XML results: ${err}\r\n`);
-                    }
+                if (code === 0 && isDebug) {
+                    runBinary();
+                } else {
+                    finishRun(code);
                 }
-
-                if (code !== 0 && !hasSeenAnyResult && !token.isCancellationRequested) {
-                    testMap.forEach(item => {
-                        run.errored(item, new vscode.TestMessage(`Process exited with code ${code}. Check output for compilation errors.`));
-                    });
-                }
-
-                cleanup();
-                resolve();
             });
 
             child.on('error', (err) => {

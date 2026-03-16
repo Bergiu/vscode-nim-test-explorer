@@ -25,8 +25,15 @@ export class NimTestController implements vscode.Disposable {
         this.controller.createRunProfile(
             'Run',
             vscode.TestRunProfileKind.Run,
-            (request, token) => this.runHandler(request, token),
+            (request, token) => this.runHandler(request, token, vscode.TestRunProfileKind.Run),
             true
+        );
+
+        this.controller.createRunProfile(
+            'Debug',
+            vscode.TestRunProfileKind.Debug,
+            (request, token) => this.runHandler(request, token, vscode.TestRunProfileKind.Debug),
+            false
         );
 
         // Watch for nim file changes
@@ -81,7 +88,8 @@ export class NimTestController implements vscode.Disposable {
 
     private async runHandler(
         request: vscode.TestRunRequest,
-        token: vscode.CancellationToken
+        token: vscode.CancellationToken,
+        profileKind: vscode.TestRunProfileKind
     ): Promise<void> {
         const run = this.controller.createTestRun(request);
 
@@ -118,7 +126,7 @@ export class NimTestController implements vscode.Disposable {
                 // We pick the first item to get the common URI info, 
                 // but implementation should ideally handle the list.
                 // runNimTests will be updated to handle multiple items.
-                await runNimTests(items, run, ws, token);
+                await runNimTests(items, run, ws, token, profileKind);
             }
         }
 

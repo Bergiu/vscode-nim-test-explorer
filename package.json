@@ -6,7 +6,7 @@
   "publisher": "your-publisher-id",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-username/nim-test-explorer"
+    "url": "https://github.com/bergiu/vscode-nim-test-explorer"
   },
   "license": "MIT",
   "engines": {
